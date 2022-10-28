@@ -16,10 +16,10 @@ import warnings
 #from tqdm import tqdm
 warnings.filterwarnings('ignore')
 #读取数据
-train_data = pd.read_csv('../data/data167030/dataTrain.csv')
-test_data = pd.read_csv('../data/data167030/dataA.csv')
-submission = pd.read_csv('../data/data167030/submit_example_A.csv')
-data_nolabel = pd.read_csv('../data/data167030/dataNoLabel.csv')
+train_data = pd.read_csv('../data/dataTrain.csv')
+test_data = pd.read_csv('../data/dataA.csv')
+submission = pd.read_csv('../data/submit_example_A.csv')
+data_nolabel = pd.read_csv('../data/dataNoLabel.csv')
 print(f'train_data.shape = {train_data.shape}')
 print(f'test_data.shape  = {test_data.shape}')
 #定义特征
