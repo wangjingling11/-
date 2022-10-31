@@ -1,186 +1,122 @@
-#sklean 进行梯度增强 xgboost 进行梯度提升 lightgbm 进行梯度增强 catboost 进行梯度增强
-import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
-from sklearn.linear_model import LogisticRegression
-from xgboost import XGBClassifier 
-from lightgbm import LGBMClassifier 
-from catboost import CatBoostClassifier 
-from sklearn.ensemble import GradientBoostingClassifier
-#from sklearn.ensemble import HistGradientBoostingClassifier 
-from sklearn.ensemble import StackingClassifier
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import roc_auc_score
+import numpy as np
+import lightgbm as lgb
 from sklearn.model_selection import train_test_split
-import warnings
-#from tqdm import tqdm
-warnings.filterwarnings('ignore')
-#读取数据
-train_data = pd.read_csv('../data/dataTrain.csv')
-test_data = pd.read_csv('../data/dataA.csv')
-submission = pd.read_csv('../data/submit_example_A.csv')
-data_nolabel = pd.read_csv('../data/dataNoLabel.csv')
-print(f'train_data.shape = {train_data.shape}')
-print(f'test_data.shape  = {test_data.shape}')
-#定义特征
-train_data['f47'] = train_data['f1'] * 10 + train_data['f2']
-test_data['f47'] = test_data['f1'] * 10 + test_data['f2']
-# 暴力Feature 位置
-loc_f = ['f1', 'f2', 'f4', 'f5', 'f6']
-for df in [train_data, test_data]:
-    for i in range(len(loc_f)):
-        for j in range(i + 1, len(loc_f)):
-            df[f'{loc_f[i]}+{loc_f[j]}'] = df[loc_f[i]] + df[loc_f[j]]
-            df[f'{loc_f[i]}-{loc_f[j]}'] = df[loc_f[i]] - df[loc_f[j]]
-            df[f'{loc_f[i]}*{loc_f[j]}'] = df[loc_f[i]] * df[loc_f[j]]
-            df[f'{loc_f[i]}/{loc_f[j]}'] = df[loc_f[i]] / (df[loc_f[j]]+1)
+import pandas.util.testing as tm
+from tqdm import tqdm
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import StratifiedKFold
+from lightgbm import early_stopping
+from lightgbm import log_evaluation
+from sklearn.metrics import accuracy_score
+accuracy_score(train['label'],np.argmax(lgb_oof,axis=1))
 
-# 暴力Feature 通话
-com_f = ['f43', 'f44', 'f45', 'f46']
-for df in [train_data, test_data]:
-    for i in range(len(com_f)):
-        for j in range(i + 1, len(com_f)):
-            df[f'{com_f[i]}+{com_f[j]}'] = df[com_f[i]] + df[com_f[j]]
-            df[f'{com_f[i]}-{com_f[j]}'] = df[com_f[i]] - df[com_f[j]]
-            df[f'{com_f[i]}*{com_f[j]}'] = df[com_f[i]] * df[com_f[j]]
-            df[f'{com_f[i]}/{com_f[j]}'] = df[com_f[i]] / (df[com_f[j]]+1)
-'''          
-# 离散化            
-all_f = [f'f{idx}' for idx in range(1, 47) if idx != 3]
-for df in [train_data, test_data]:
-    for col in all_f:
-        df[f'{col}_log'] = df[col].apply(lambda x: int(np.log(x)) if x > 0 else 0)
-# 特征交叉        
-log_f = [f'f{idx}_log' for idx in range(1, 47) if idx != 3]
-for df in [train_data, test_data]:
-    for i in range(len(log_f)):
-        for j in range(i + 1, len(log_f)):
-            df[f'{log_f[i]}_{log_f[j]}'] = df[log_f[i]]*10000 + df[log_f[j]]  
-'''            
-#特征数值化
-cat_columns = ['f3']
-data = pd.concat([train_data, test_data])
+train = pd.read_csv('返乡发展人群预测/dataTrain.csv')
+no_label = pd.read_csv('返乡发展人群预测/dataNoLabel.csv')
+A = pd.read_csv('返乡发展人群预测/dataA.csv')
 
-for col in cat_columns:
-    lb = LabelEncoder()
-    lb.fit(data[col])
-    train_data[col] = lb.transform(train_data[col])
-    test_data[col] = lb.transform(test_data[col])
-#构造训练集和测试集
-num_columns = [ col for col in train_data.columns if col not in ['id', 'label', 'f3']]
-feature_columns = num_columns + cat_columns
-target = 'label'
+print(train.head())
+print(no_label.head())
+print(A.head())
+print(train['label'].value_counts())
+train['label'].value_counts().plot(kind='bar')
+data=pd.concat([train, A],axis=0).reset_index(drop=True)
+data=data.fillna('NAN')
+print(data)
 
-train = train_data[feature_columns]
-label = train_data[target]
-test = test_data[feature_columns]
+lbls={}
+features=data.columns[1:-1]
+print(len(features))
+for col in tqdm(features):
+    lbl=LabelEncoder()
+    lbl.fit(data[col])
+    data[col]=lbl.transform(data[col])
+    
+train, test = data[:len(train)], data[len(train):]
+print(train)
+print(test)
 
-#交叉验证模型框架
-def model_train(model, model_name, cv=5): 
-    AA = np.zeros((train.shape[0])) 
-    B = np.zeros(test.shape[0]) 
-    s = StratifiedKFold(n_splits=cv)
-    print(f"Model = {model_name}")
-    for k, (train_index, test_index) in enumerate(s.split(train, label)):
-        x_train, x_test = train.iloc[train_index, :], train.iloc[test_index, :]
-        y_train, y_test = label.iloc[train_index], label.iloc[test_index]
+# 排除特征
+# id等肯定是要排除的
+feature_names = list(
+    filter(
+        lambda x: x not in ['id','label'],
+        train.columns))
+# label转为int类型
+train['label']=train['label'].apply(lambda i:int(i))
 
-        model.fit(x_train,y_train)
+def lgb_model(train, target, test, k):
+    feats = [f for f in train.columns if f not in ['lable',  'url', 'url_count']]
 
-        y_pred = model.predict_proba(x_test)[:,1]
-        AA[test_index] = y_pred.ravel()
-        auc = roc_auc_score(y_test,y_pred)
-        print("- KFold = %d, val_auc = %.4f" % (k, auc))
-        Test = model.predict_proba(test)[:, 1]
-        B += Test.ravel()
-    print("Overall Model = %s, AUC = %.4f" % (model_name, roc_auc_score(label, AA)))
-    return B / cv
-#去除干扰数据，即噪声
-gbc = GradientBoostingClassifier()
-gbc_test_preds = model_train(gbc, "GradientBoostingClassifier", 60)
-train = train[:50000]
-label = label[:50000]
-#模型融合
-gbc = GradientBoostingClassifier(
-    n_estimators=50, 
-    learning_rate=0.1,
-    max_depth=5
-)
-'''
-hgbc = HistGradientBoostingClassifier(
-    max_iter=100,
-    max_depth=5
-)
-'''
+    print('Current num of features:', len(feats))
 
-xgbc = XGBClassifier(
-    objective='binary:logistic',
-    eval_metric='auc',
-    n_estimators=100, 
-    max_depth=6, 
-    learning_rate=0.1
-)
+    oof_probs = np.zeros((train.shape[0],2))
+    output_preds = 0
+    offline_score = []
+    feature_importance_df = pd.DataFrame()
+    parameters = {
+        'learning_rate': 0.03,
+        'boosting_type': 'gbdt',
+        'objective': 'multiclass',
+        'metric': 'multi_error',
+        'num_class': 2,
+        'num_leaves': 31,
+        'feature_fraction': 0.6,
+        'bagging_fraction': 0.8,
+        'min_data_in_leaf': 15,
+        'verbose': -1,
+        'nthread': 4,
+        'max_depth': 7
+    }
 
-gbm = LGBMClassifier(
-    objective='binary',
-    boosting_type='gbdt',
-    num_leaves=2 ** 6, 
-    max_depth=8,
-    colsample_bytree=0.8,
-    subsample_freq=1,
-    max_bin=255,
-    learning_rate=0.05, 
-    n_estimators=100, 
-    metrics='auc'
-)
-cbc = CatBoostClassifier(
-    iterations=210, 
-    depth=6, 
-    learning_rate=0.03, 
-    l2_leaf_reg=1, 
-    loss_function='Logloss', 
-    verbose=0
-)
+    seeds = [2020]
+    for seed in seeds:
+        folds = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
+        for i, (train_index, test_index) in enumerate(folds.split(train, target)):
+            train_y, test_y = target.iloc[train_index], target.iloc[test_index]
+            train_X, test_X = train[feats].iloc[train_index, :], train[feats].iloc[test_index, :]
 
-estimators = [
-    ('gbc', gbc),
-    #('hgbc', hgbc),
-    ('xgbc', xgbc),
-    ('gbm', gbm),
-    ('cbc', cbc)
-]
+            dtrain = lgb.Dataset(train_X,
+                                 label=train_y)
+            dval = lgb.Dataset(test_X,
+                               label=test_y)
+            lgb_model = lgb.train(
+                parameters,
+                dtrain,
+                num_boost_round=20000,
+                valid_sets=[dval],
+                callbacks=[early_stopping(100), log_evaluation(100)],
+            )
+            oof_probs[test_index] = lgb_model.predict(test_X[feats], num_iteration=lgb_model.best_iteration) / len(
+                seeds)
+            offline_score.append(lgb_model.best_score['valid_0']['multi_error'])
+            output_preds += lgb_model.predict(test[feats],
+                                              num_iteration=lgb_model.best_iteration) / folds.n_splits / len(seeds)
+            print(offline_score)
+            # feature importance
+            fold_importance_df = pd.DataFrame()
+            fold_importance_df["feature"] = feats
+            fold_importance_df["importance"] = lgb_model.feature_importance(importance_type='gain')
+            fold_importance_df["fold"] = i + 1
+            feature_importance_df = pd.concat([feature_importance_df, fold_importance_df], axis=0)
+    print('OOF-MEAN-AUC:%.6f, OOF-STD-AUC:%.6f' % (np.mean(offline_score), np.std(offline_score)))
+    print('feature importance:')
+    print(feature_importance_df.groupby(['feature'])['importance'].mean().sort_values(ascending=False).head(50))
 
-clf = StackingClassifier(
-    estimators=estimators, 
-    final_estimator=LogisticRegression()
-)
-#将训练数据划分成训练集和验证集
-X_train, X_test, y_train, y_test = train_test_split(
-    train, label, stratify=label, random_state=2022)
-#组合模型进行训练和验证
-clf.fit(X_train, y_train)
-y_pred = clf.predict_proba(X_test)[:, 1]
-auc = roc_auc_score(y_test, y_pred)
-print('auc = %.8f' % auc)
-#循环遍历特征，对验证集的特征进行标记
-ff = []
-for col in feature_columns:
-    x_test = X_test.copy()
-    x_test[col] = 0
-    auc1 = roc_auc_score(y_test, clf.predict_proba(x_test)[:, 1])
-    if auc1 < auc:
-        ff.append(col)
-    print('%5s | %.8f | %.8f' % (col, auc1, auc1 - auc))
-#选取差值为负的特征，对比特征筛选后的特征提升
-clf.fit(X_train[ff], y_train)
-y_pred = clf.predict_proba(X_test[ff])[:, 1]
-auc = roc_auc_score(y_test, y_pred)
-print('auc = %.8f' % auc)
-#模型训练
-train = train[ff]
-test = test[ff]
+    return output_preds, oof_probs, np.mean(offline_score), feature_importance_df
 
-clf_test_preds = model_train(clf, "StackingClassifier", 10)
+print('开始模型训练train')
+lgb_preds, lgb_oof, lgb_score, feature_importance_df = lgb_model(train=train[feature_names],
+                                                                 target=train['label'],
+                                                                 test=test[feature_names], k=10)
 
-submission['label'] = clf_test_preds
-submission.to_csv('submission.csv', index=False)
+# 读取提交格式
+example_A = pd.read_csv('返乡发展人群预测/submit_example_A.csv')
+print(example_A.head())
+
+# 获取最大概率标签
+example_A['label']=np.argmax(lgb_preds,axis=1)
+print(example_A['label'].value_counts())
+
+# 保存
+example_A.to_csv('sub.csv',index=None)
