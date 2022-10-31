@@ -120,4 +120,4 @@ print(example_A['label'].value_counts())
 # 保存
 example_A.to_csv('sub.csv',index=None)
 
-accuracy_score(train['label'],np.argmax(lgb_oof,axis=1))
+print(accuracy_score(train['label'],np.argmax(lgb_oof,axis=1)))
