@@ -9,7 +9,6 @@ from sklearn.model_selection import StratifiedKFold
 from lightgbm import early_stopping
 from lightgbm import log_evaluation
 from sklearn.metrics import accuracy_score
-accuracy_score(train['label'],np.argmax(lgb_oof,axis=1))
 
 train = pd.read_csv('返乡发展人群预测/dataTrain.csv')
 no_label = pd.read_csv('返乡发展人群预测/dataNoLabel.csv')
@@ -120,3 +119,5 @@ print(example_A['label'].value_counts())
 
 # 保存
 example_A.to_csv('sub.csv',index=None)
+
+accuracy_score(train['label'],np.argmax(lgb_oof,axis=1))
